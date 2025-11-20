@@ -1,0 +1,15 @@
+[Unit]
+Description=Apache Spark Master
+After=network.target
+
+[Service]
+Type=forking
+User=spark
+Group=spark
+ExecStart={{ spark_home }}/sbin/start-master.sh
+ExecStop={{ spark_home }}/sbin/stop-master.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

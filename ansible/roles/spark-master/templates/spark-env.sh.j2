@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+# Spark Environment Configuration for Master
+export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+export SPARK_HOME={{ spark_home }}
+export SPARK_MASTER_HOST={{ spark_master_host | default(ansible_default_ipv4.address) }}
+export SPARK_MASTER_PORT=7077
+export SPARK_MASTER_WEBUI_PORT=8080
+export SPARK_WORKER_CORES={{ ansible_processor_vcpus }}
+export SPARK_WORKER_MEMORY={{ (ansible_memtotal_mb * 0.8) | int }}m
+export SPARK_DAEMON_MEMORY=1g
+export SPARK_LOG_DIR={{ spark_home }}/logs
+export SPARK_PID_DIR=/var/run/spark

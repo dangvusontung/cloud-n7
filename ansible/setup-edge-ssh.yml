@@ -1,0 +1,84 @@
+---
+# Playbook to setup SSH access from Edge node to Master node
+# This allows the spark user on edge node to SSH to master node
+
+- name: Setup SSH access from Edge to Master
+  hosts: edge
+  become: yes
+  vars:
+    master_private_ip: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+  
+  tasks:
+    - name: Ensure spark user home directory exists
+      file:
+        path: /home/spark
+        state: directory
+        owner: spark
+        group: spark
+        mode: '0755'
+    
+    - name: Ensure .ssh directory exists for spark user
+      file:
+        path: /home/spark/.ssh
+        state: directory
+        owner: spark
+        group: spark
+        mode: '0700'
+    
+    - name: Generate SSH key for spark user on edge node (if not exists)
+      openssh_keypair:
+        path: /home/spark/.ssh/id_rsa
+        type: rsa
+        size: 2048
+        owner: spark
+        group: spark
+        mode: '0600'
+      become_user: spark
+      register: edge_ssh_key
+    
+    - name: Read edge node public key
+      slurp:
+        src: /home/spark/.ssh/id_rsa.pub
+      register: edge_public_key
+      become_user: spark
+    
+    - name: Display edge public key
+      debug:
+        msg: "Edge node public key: {{ edge_public_key.content | b64decode | trim }}"
+    
+    - name: Add edge public key to master node authorized_keys
+      authorized_key:
+        user: spark
+        state: present
+        key: "{{ edge_public_key.content | b64decode | trim }}"
+      delegate_to: "{{ groups['master'][0] }}"
+      become: yes
+
+- name: Test SSH connectivity from Edge to Master
+  hosts: edge
+  become: yes
+  vars:
+    master_private_ip: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+  
+  tasks:
+    - name: Test SSH connection from edge to master
+      command: ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 spark@{{ master_private_ip }} "hostname && echo 'SSH connection successful!'"
+      become_user: spark
+      register: ssh_test
+      changed_when: false
+    
+    - name: Display SSH test result
+      debug:
+        msg: "{{ ssh_test.stdout }}"
+    
+    - name: Verify Spark connection
+      command: ssh -o StrictHostKeyChecking=no spark@{{ master_private_ip }} "{{ spark_home }}/bin/spark-submit --version"
+      become_user: spark
+      register: spark_version_check
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Display Spark version check result
+      debug:
+        msg: "{{ spark_version_check.stdout | default('Could not verify Spark version') }}"
+

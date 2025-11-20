@@ -1,0 +1,15 @@
+[Unit]
+Description=Apache Spark Worker
+After=network.target
+
+[Service]
+Type=forking
+User=spark
+Group=spark
+ExecStart={{ spark_home }}/sbin/start-slave.sh spark://{{ spark_master_host }}:7077
+ExecStop={{ spark_home }}/sbin/stop-slave.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

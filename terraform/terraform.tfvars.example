@@ -1,0 +1,33 @@
+# Terraform Variables Configuration
+# Copy this file to terraform.tfvars and fill in your actual values
+
+project_id           = "YOUR-PROJECT-ID"
+region               = "asia-southeast1"
+zone                 = "asia-southeast1-a"
+
+cluster_name         = "spark"
+worker_count         = 2
+
+service_account_email = "terraform-spark-sa@YOUR-PROJECT-ID.iam.gserviceaccount.com"
+
+# Optional: Override artifact upload settings
+# spark_version             = "2.4.3"
+# hadoop_version            = "2.7"
+# enable_auto_artifact_upload = true
+
+# Optional: Override default machine types
+# master_machine_type   = "n2-standard-4"
+# worker_machine_type   = "n2-standard-8"
+# edge_machine_type     = "n2-standard-2"
+
+# Optional: Override default SSH settings
+# ssh_user              = "sparkuser"
+# ssh_public_key_path   = "~/.ssh/spark-cluster-key.pub"
+
+# Optional: Upload Spark artifacts directly via Terraform (absolute paths)
+# (run/select-local-spark.sh sets spark_archive_local_path automatically when using run/deploy.sh)
+# spark_archive_local_path  = "/home/user/Downloads/spark-2.4.3-bin-hadoop2.7.tgz"
+# spark_archive_object_name = "spark-2.4.3-bin-hadoop2.7.tgz"
+# sample_input_local_path   = "/home/user/cloud-project/ansible/examples/filesample.txt"
+# sample_input_object_name  = "filesample.txt"
+

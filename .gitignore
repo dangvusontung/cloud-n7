@@ -1,0 +1,97 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Terraform variables (may contain secrets)
+*.tfvars
+*.tfvars.json
+!example.tfvars
+!*.example.tfvars
+
+# Ansible
+*.retry
+.vault_pass
+ansible_vault_pass
+*.vault
+.ansible/
+spark-ansible/inventory/hosts.ini
+
+# Service account keys and credentials
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!*.example.json
+credentials.json
+*-credentials.json
+*-key.json
+*-service-account.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+.directory
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Zone identifiers (Windows)
+*:Zone.Identifier
+
+# Google Cloud SDK
+google-cloud-sdk/
+google-cloud-sdk*.tar.gz
+
+# Documentation files (all markdown files excluded)
+*.pdf
+

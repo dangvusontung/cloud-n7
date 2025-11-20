@@ -1,0 +1,212 @@
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install required packages
+  apt:
+    name:
+      - openjdk-{{ java_version }}-jdk
+      - wget
+      - curl
+      - unzip
+      - python3
+      - python3-pip
+    state: present
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: Create spark group
+  group:
+    name: spark
+    system: yes
+  become: yes
+
+- name: Create spark user
+  user:
+    name: spark
+    group: spark
+    shell: /bin/bash
+    create_home: yes
+    system: yes
+  become: yes
+
+- name: Create spark directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: spark
+    group: spark
+    mode: '0755'
+  become: yes
+  loop:
+    - "{{ spark_home }}"
+    - "{{ spark_home }}/work"
+    - "{{ spark_home }}/logs"
+    - "{{ spark_home }}/logs/eventLogs"
+    - /var/log/spark
+    - /var/run/spark
+
+- name: Check if Spark archive already exists
+  stat:
+    path: /tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz
+  register: spark_archive_file
+
+- name: Acquire GCP metadata token
+  uri:
+    url: "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+    method: GET
+    headers: 
+      Metadata-Flavor: Google
+    return_content: yes
+    timeout: 5
+  register: spark_gcp_token
+  when: spark_artifacts_bucket_name | default('') | length > 0
+  ignore_errors: yes
+
+# === TASK DOWNLOAD FILE TEST ===
+- name: Download Test File from GCS
+  get_url:
+    url: "https://storage.googleapis.com/download/storage/v1/b/{{ spark_artifacts_bucket_name }}/o/{{ 'filesample.txt' | urlencode }}?alt=media"
+    dest: /tmp/filesample.txt
+    mode: '0644'
+    timeout: 300
+    force: yes
+    headers:
+      Authorization: "Bearer {{ spark_gcp_token.json.access_token }}"
+  when:
+    - spark_artifacts_bucket_name | default('') | length > 0
+    - spark_gcp_token is succeeded
+
+- name: Download Spark from GCS Bucket
+  get_url:
+    url: "https://storage.googleapis.com/download/storage/v1/b/{{ spark_artifacts_bucket_name }}/o/{{ ('spark-' ~ spark_version ~ '-bin-hadoop' ~ hadoop_version ~ '.tgz') | urlencode }}?alt=media"
+    dest: /tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz
+    mode: '0644'
+    timeout: 300
+    headers:
+      Authorization: "Bearer {{ spark_gcp_token.json.access_token }}"
+  when:
+    - not spark_archive_file.stat.exists
+    - spark_artifacts_bucket_name | default('') | length > 0
+    - spark_gcp_token is succeeded
+
+- name: Check archive existence again
+  stat:
+    path: /tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz
+  register: spark_archive_final_check
+
+# === TASK DOWNLOAD SPARK (FALLBACK APACHE) ===
+- name: Download from Apache Archive (Fallback)
+  get_url:
+    url: "https://archive.apache.org/dist/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+    dest: /tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz
+    mode: '0644'
+    timeout: 300
+  when: not spark_archive_final_check.stat.exists
+
+- name: Extract Spark
+  unarchive:
+    src: /tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz
+    dest: /opt
+    remote_src: yes
+    owner: spark
+    group: spark
+    creates: /opt/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}
+  become: yes
+
+- name: Check existing spark home path
+  stat:
+    path: "{{ spark_home }}"
+  register: spark_home_path
+
+- name: Remove existing spark home directory
+  file:
+    path: "{{ spark_home }}"
+    state: absent
+  become: yes
+  when: spark_home_path.stat.exists and not spark_home_path.stat.islnk
+
+- name: Create symlink for spark home
+  file:
+    src: /opt/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}
+    dest: "{{ spark_home }}"
+    state: link
+    force: yes
+    owner: spark
+    group: spark
+  become: yes
+
+- name: Copy spark-env.sh from template
+  copy:
+    src: "{{ spark_home }}/conf/spark-env.sh.template"
+    dest: "{{ spark_home }}/conf/spark-env.sh"
+    remote_src: yes
+    owner: spark
+    group: spark
+    mode: '0755'
+  become: yes
+
+- name: Detect JAVA_HOME dynamically
+  shell: dirname $(dirname $(readlink -f $(which java)))
+  register: java_home_detected
+  changed_when: false
+
+- name: Set JAVA_HOME in spark-env.sh
+  lineinfile:
+    path: "{{ spark_home }}/conf/spark-env.sh"
+    regexp: '^#?export JAVA_HOME='
+    line: "export JAVA_HOME={{ java_home_detected.stdout }}"
+  become: yes
+
+- name: Ensure spark-defaults.conf exists
+  file:
+    path: "{{ spark_home }}/conf/spark-defaults.conf"
+    state: touch
+    owner: spark
+    group: spark
+    mode: '0644'
+  become: yes
+
+- name: Create directory for Spark Apps
+  file:
+    path: /opt/spark-apps
+    state: directory
+    mode: '0755'
+    owner: spark
+    group: spark
+  become: yes
+  when: "'edge' in group_names"
+
+- name: Copy Source Code to Edge
+  copy:
+    src: "{{ playbook_dir }}/examples/WordCount.java"
+    dest: /opt/spark-apps/WordCount.java
+    mode: '0644'
+    owner: spark
+    group: spark
+  become: yes
+  when: "'edge' in group_names"
+
+- name: Compile and Build JAR on Edge
+  shell: |
+    cd /opt/spark-apps
+    javac -cp "/opt/spark/jars/*:." WordCount.java
+    jar cvf wordcount.jar WordCount.class *.class
+    rm -f *.class
+  become: yes
+  become_user: root 
+  when: "'edge' in group_names"
+  args:
+    executable: /bin/bash
+
+- name: Fix permissions for Spark logs 
+  file:
+    path: "{{ spark_home }}/logs"
+    state: directory
+    owner: spark
+    group: spark
+    mode: '0777'      
+    recurse: yes     
+  become: yes

@@ -1,0 +1,89 @@
+- name: Configure Spark Master
+  hosts: master
+  gather_facts: yes
+  pre_tasks:
+    - name: Check if Spark archive already downloaded (pre-flight)
+      stat:
+        path: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+      register: spark_archive_precheck
+
+    - name: Announce Spark download start on master
+      debug:
+        msg: "Downloading Spark {{ spark_version }} to /tmp on {{ inventory_hostname }}..."
+      when:
+        - not spark_archive_precheck.stat.exists
+
+    - name: Test if Apache archive is reachable
+      uri:
+        url: "https://archive.apache.org/dist/spark/spark-{{ spark_version }}/"
+        method: GET
+        timeout: 30
+        status_code: 200
+      register: url_test
+      ignore_errors: yes
+
+    - name: Show URL test result
+      debug:
+        msg: "URL accessibility: {{ url_test.status }} - {{ url_test.msg }}"
+  roles:
+    - role: common
+      vars:
+        spark_download_enabled: true
+    - spark-master
+  post_tasks:
+    - name: Check for Spark archive on master
+      stat:
+        path: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+      register: spark_archive
+
+    - name: Fetch Spark archive to controller
+      fetch:
+        src: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+        dest: "/tmp/"
+        flat: yes
+      when: spark_archive.stat.exists
+
+- name: Configure Spark Workers
+  hosts: workers
+  gather_facts: yes
+  pre_tasks:
+    - name: Copy Spark archive from controller
+      copy:
+        src: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+        dest: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+        mode: '0644'
+  roles:
+    - role: common
+      vars:
+        spark_download_enabled: false
+    - spark-worker
+
+- name: Configure Spark Edge Node
+  hosts: edge
+  gather_facts: yes
+  pre_tasks:
+    - name: Copy Spark archive from controller
+      copy:
+        src: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+        dest: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+        mode: '0644'
+  roles:
+    - role: common
+      vars:
+        spark_download_enabled: false
+    - spark-edge
+
+- name: Verify Spark Cluster
+  hosts: master
+  gather_facts: yes
+  tasks:
+    - name: Check Spark Master UI
+      uri:
+        url: "http://{{ private_ip }}:8080/json/"
+        return_content: yes
+      register: master_status
+
+    - name: Display cluster status
+      debug:
+        msg: "Cluster has {{ master_status.json.workers | length }} active workers"
+

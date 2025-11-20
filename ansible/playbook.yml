@@ -1,0 +1,85 @@
+---
+- name: Configure Spark Cluster - Common Setup
+  hosts: spark_cluster
+  gather_facts: yes
+  become: yes
+  pre_tasks:
+    - name: Load terraform outputs
+      set_fact:
+        terraform_outputs: "{{ lookup('file', '../terraform/terraform_outputs.json') | from_json }}"
+      when: spark_artifacts_bucket_name is not defined
+      ignore_errors: yes
+
+    - name: Set spark_artifacts_bucket_name from terraform outputs
+      set_fact:
+        spark_artifacts_bucket_name: "{{ terraform_outputs.artifacts_bucket_name.value | default('') }}"
+      when: 
+        - spark_artifacts_bucket_name is not defined
+        - terraform_outputs is defined
+        - terraform_outputs.artifacts_bucket_name.value is defined
+
+    - name: Check if Spark archive already downloaded (pre-flight)
+      stat:
+        path: "/tmp/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+      register: spark_archive_precheck
+
+    - name: Announce Spark download start
+      debug:
+        msg: "Downloading Spark {{ spark_version }} ({{ archive_url | default('https://archive.apache.org/...') }}) on {{ inventory_hostname }}..."
+      vars:
+        archive_url: "https://archive.apache.org/dist/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop{{ hadoop_version }}.tgz"
+      when:
+        - spark_download_enabled | default(true)
+        - not spark_archive_precheck.stat.exists
+
+    - name: Test if Apache archive is reachable
+      uri:
+        url: "https://archive.apache.org/dist/spark/spark-{{ spark_version }}/"
+        method: GET
+        timeout: 30
+        status_code: 200
+      register: url_test
+      ignore_errors: yes
+
+    - name: Show URL test result
+      debug:
+        msg: "URL accessibility: {{ url_test.status }} - {{ url_test.msg }}"
+  roles:
+    - common
+
+- name: Configure Spark Master
+  hosts: master
+  gather_facts: yes
+  become: yes
+  roles:
+    - spark-master
+
+- name: Configure Spark Workers
+  hosts: workers
+  gather_facts: yes
+  become: yes
+  roles:
+    - spark-worker
+
+- name: Configure Spark Edge Node
+  hosts: edge
+  gather_facts: yes
+  become: yes
+  roles:
+    - spark-edge
+
+- name: Verify Spark Cluster
+  hosts: master
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Check Spark Master UI
+      uri:
+        url: "http://{{ private_ip }}:8080/json/"
+        return_content: yes
+      register: master_status
+
+    - name: Display cluster status
+      debug:
+        msg: "Cluster has {{ master_status.json.workers | length }} active workers"
+

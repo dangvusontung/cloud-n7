@@ -1,0 +1,18 @@
+# Spark Default Configuration
+spark.master                     spark://{{ spark_master_host }}:7077
+spark.eventLog.enabled           true
+spark.eventLog.dir               {{ spark_log_dir }}/eventLogs
+spark.history.fs.logDirectory    {{ spark_log_dir }}/eventLogs
+spark.serializer                 org.apache.spark.serializer.KryoSerializer
+spark.driver.memory              {{ spark_driver_memory | default('1g') }}
+spark.executor.memory            {{ spark_executor_memory | default('1g') }}
+spark.executor.cores             {{ spark_executor_cores | default('1') }}
+spark.sql.adaptive.enabled       true
+spark.sql.adaptive.coalescePartitions.enabled true
+
+# Prevent executor premature exits
+spark.dynamicAllocation.enabled  false
+spark.executor.instances         {{ spark_executor_instances | default('2') }}
+spark.executor.idleTimeout       600s
+spark.network.timeout            800s
+spark.executor.heartbeatInterval 10s

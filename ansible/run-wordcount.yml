@@ -1,0 +1,245 @@
+---
+# Playbook to copy and run existing WordCount JAR on Edge node
+
+- name: Copy WordCount JAR and input file to Edge node
+  hosts: edge
+  become: yes
+  vars:
+    master_private_ip: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+    examples_dir: "/home/spark/examples"
+    output_dir: "/home/spark/output/wordcount-result"
+  
+  tasks:
+    - name: Create examples directory
+      file:
+        path: "{{ examples_dir }}"
+        state: directory
+        owner: spark
+        group: spark
+        mode: '0755'
+    
+    - name: Create output directory
+      file:
+        path: "/home/spark/output"
+        state: directory
+        owner: spark
+        group: spark
+        mode: '0777'
+    
+    - name: Copy WordCount JAR file to edge node
+      copy:
+        src: examples/wordcount.jar
+        dest: "{{ examples_dir }}/wordcount.jar"
+        owner: spark
+        group: spark
+        mode: '0644'
+    
+    - name: Copy input file to edge node
+      copy:
+        src: examples/filesample.txt
+        dest: "{{ examples_dir }}/filesample.txt"
+        owner: spark
+        group: spark
+        mode: '0644'
+    
+    - name: Clean previous output directory
+      shell: su - spark -c "rm -rf {{ output_dir }}"
+      changed_when: false
+    
+    - name: Create log directory for stderr
+      file:
+        path: "/home/spark/logs"
+        state: directory
+        owner: spark
+        group: spark
+        mode: '0755'
+    
+    - name: Run WordCount job with spark-submit
+      shell: |
+        su - spark -c "/opt/spark/bin/spark-submit \
+          --master spark://{{ master_private_ip }}:7077 \
+          --deploy-mode client \
+          --executor-memory 512m \
+          --executor-cores 2 \
+          --num-executors 2 \
+          --conf spark.dynamicAllocation.enabled=false \
+          --conf spark.executor.idleTimeout=600s \
+          --conf spark.network.timeout=800s \
+          --conf spark.executor.heartbeatInterval=10s \
+          --conf spark.driver.extraJavaOptions='--illegal-access=permit --add-opens=java.base/java.nio=ALL-UNNAMED' \
+          --conf spark.executor.extraJavaOptions='--illegal-access=permit --add-opens=java.base/java.nio=ALL-UNNAMED' \
+          --class WordCount \
+          {{ examples_dir }}/wordcount.jar \
+          {{ examples_dir }}/filesample.txt \
+          {{ output_dir }} > /home/spark/logs/wordcount-stdout.log 2> /home/spark/logs/wordcount-stderr.log"
+      register: wordcount_result
+      async: 1800
+      poll: 10
+      failed_when: false
+    
+    - name: Read stderr from file
+      slurp:
+        src: /home/spark/logs/wordcount-stderr.log
+      register: stderr_file
+      become: yes
+      when: wordcount_result is defined
+    
+    - name: Read stdout from file
+      slurp:
+        src: /home/spark/logs/wordcount-stdout.log
+      register: stdout_file
+      become: yes
+      when: wordcount_result is defined
+    
+    - name: Set stderr content from file
+      set_fact:
+        wordcount_stderr: "{{ stderr_file.content | b64decode | default('') }}"
+      when: stderr_file is defined and stderr_file.content is defined
+    
+    - name: Set stdout content from file
+      set_fact:
+        wordcount_stdout: "{{ stdout_file.content | b64decode | default('') }}"
+      when: stdout_file is defined and stdout_file.content is defined
+    
+    - name: Save combined output to file for easy access
+      copy:
+        content: |
+          === STDOUT ===
+          {{ wordcount_stdout | default(wordcount_result.stdout | default('(empty)')) }}
+          
+          === STDERR ===
+          {{ wordcount_stderr | default(wordcount_result.stderr | default('(empty)')) }}
+          
+          === RETURN CODE ===
+          {{ wordcount_result.rc | default('N/A') }}
+          
+          === FULL RESULT ===
+          {{ wordcount_result | to_nice_json }}
+        dest: /home/spark/logs/wordcount-last-run.log
+        owner: spark
+        group: spark
+        mode: '0644'
+      when: wordcount_result is defined
+    
+    - name: Display job return code
+      debug:
+        msg: "Job return code: {{ wordcount_result.rc | default('N/A') }}"
+    
+    - name: Display job stdout
+      debug:
+        msg: |
+          === STDOUT ===
+          {{ wordcount_stdout | default(wordcount_result.stdout | default('(empty)')) }}
+      when: wordcount_stdout is defined or wordcount_result.stdout is defined
+    
+    - name: Display job stderr (always show)
+      debug:
+        msg: |
+          === STDERR ===
+          {{ wordcount_stderr | default(wordcount_result.stderr | default('(empty - no stderr captured)')) }}
+    
+    - name: Display full result for debugging
+      debug:
+        var: wordcount_result
+      when: wordcount_result.rc != 0 | default(true)
+    
+    - name: Show location of stderr log file
+      debug:
+        msg: |
+          ============================================
+          STDERR has been saved to:
+          /home/spark/logs/wordcount-stderr.log
+          
+          To view it, run:
+          ssh sparkuser@{{ ansible_host }} "sudo -u spark cat /home/spark/logs/wordcount-stderr.log"
+          ============================================
+    
+    - name: Check worker status before diagnosing
+      debug:
+        msg: "Job failed. Checking executor logs on workers..."
+      when: wordcount_result.rc != 0 | default(true)
+    
+    - name: Check Spark worker service status
+      command: systemctl status spark-worker --no-pager
+      register: worker_status
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['workers'] }}"
+      when: wordcount_result.rc != 0 | default(true)
+      become: yes
+      changed_when: false
+      failed_when: false
+    
+    - name: Get recent worker service logs
+      shell: journalctl -u spark-worker --no-pager -n 50
+      register: worker_service_logs
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['workers'] }}"
+      when: wordcount_result.rc != 0 | default(true)
+      become: yes
+      changed_when: false
+    
+    - name: Display worker service logs
+      debug:
+        msg: |
+          === Worker Service Logs from {{ item.item }} ===
+          {{ item.stdout }}
+      loop: "{{ worker_service_logs.results | default([]) }}"
+      when: 
+        - wordcount_result.rc != 0 | default(true)
+        - worker_service_logs.results is defined
+    
+    - name: Find executor log directories on workers
+      shell: |
+        ls -td {{ spark_home }}/work/app-*/executor-*/stderr 2>/dev/null | head -5 || echo "No executor logs found"
+      register: executor_log_paths
+      become: yes
+      become_user: spark
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['workers'] }}"
+      when: wordcount_result.rc != 0 | default(true)
+      changed_when: false
+    
+    - name: Read executor stderr from workers
+      slurp:
+        src: "{{ item.item.stdout_lines[0] }}"
+      register: worker_executor_logs
+      become: yes
+      delegate_to: "{{ item.item.ansible_host }}"
+      loop: "{{ executor_log_paths.results | default([]) }}"
+      when: 
+        - wordcount_result.rc != 0 | default(true)
+        - item.item.stdout_lines is defined
+        - item.item.stdout_lines | length > 0
+        - "'No executor logs found' not in item.item.stdout_lines[0]"
+    
+    - name: Display executor error logs
+      debug:
+        msg: |
+          === Executor Error Log from {{ item.item.item.ansible_host }} ===
+          {{ item.content | b64decode | default('(empty)') }}
+      loop: "{{ worker_executor_logs.results | default([]) }}"
+      when: 
+        - wordcount_result.rc != 0 | default(true)
+        - worker_executor_logs.results is defined
+    
+    - name: Check if output directory exists
+      stat:
+        path: "{{ output_dir }}"
+      register: output_stat
+    
+    - name: Display output directory info
+      debug:
+        msg: "Output directory exists: {{ output_stat.stat.exists }}"
+      when: output_stat.stat.exists
+    
+    - name: Read and display top 20 results
+      shell: su - spark -c "cat {{ output_dir }}/part-* 2>/dev/null | head -20 || echo 'No output files found'"
+      register: top_results
+      when: output_stat.stat.exists
+      changed_when: false
+    
+    - name: Display top word count results
+      debug:
+        msg: "{{ top_results.stdout_lines }}"
+      when: top_results.stdout is defined
+

@@ -1,0 +1,58 @@
+---
+# Tasks for Spark Master
+- name: Include common role
+  include_role:
+    name: common
+
+- name: Set spark master host variable
+  set_fact:
+    spark_master_host: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+    spark_log_dir: "{{ spark_home }}/logs"
+
+- name: Copy spark-defaults.conf for master
+  template:
+    src: ../../templates/spark-defaults.conf.j2
+    dest: "{{ spark_home }}/conf/spark-defaults.conf"
+    owner: spark
+    group: spark
+    mode: '0644'
+  become: yes
+  vars:
+    spark_master_host: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+
+- name: Copy spark-env.sh for master
+  template:
+    src: spark-env.sh.j2
+    dest: "{{ spark_home }}/conf/spark-env.sh"
+    owner: spark
+    group: spark
+    mode: '0755'
+  become: yes
+
+- name: Copy spark-master systemd service
+  template:
+    src: spark-master.service.j2
+    dest: /etc/systemd/system/spark-master.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+
+- name: Enable spark-master service
+  systemd:
+    name: spark-master
+    enabled: yes
+    state: started
+  become: yes
+
+- name: Wait for Spark Master to be ready
+  wait_for:
+    port: 7077
+    host: "{{ ansible_default_ipv4.address }}"
+    delay: 10
+    timeout: 60

@@ -1,0 +1,28 @@
+---
+# Tasks for Spark Edge Node
+- name: Include common role
+  include_role:
+    name: common
+
+- name: Set spark master host variable
+  set_fact:
+    spark_master_host: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+    spark_log_dir: "{{ spark_home }}/logs"
+
+- name: Copy spark-defaults.conf for edge node
+  template:
+    src: ../../templates/spark-defaults.conf.j2
+    dest: "{{ spark_home }}/conf/spark-defaults.conf"
+    owner: spark
+    group: spark
+    mode: '0644'
+  become: yes
+
+- name: Add Spark to PATH for spark user
+  lineinfile:
+    path: /home/spark/.bashrc
+    line: 'export PATH={{ spark_home }}/bin:{{ spark_home }}/sbin:$PATH'
+    create: yes
+    owner: spark
+    group: spark
+  become: yes

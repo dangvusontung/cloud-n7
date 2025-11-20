@@ -1,0 +1,49 @@
+---
+# Tasks for Spark Worker
+- name: Include common role
+  include_role:
+    name: common
+
+- name: Set spark master host variable
+  set_fact:
+    spark_master_host: "{{ hostvars[groups['master'][0]]['private_ip'] }}"
+    spark_log_dir: "{{ spark_home }}/logs"
+
+- name: Copy spark-defaults.conf for worker
+  template:
+    src: ../../templates/spark-defaults.conf.j2
+    dest: "{{ spark_home }}/conf/spark-defaults.conf"
+    owner: spark
+    group: spark
+    mode: '0644'
+  become: yes
+
+- name: Copy spark-env.sh for worker
+  template:
+    src: spark-env.sh.j2
+    dest: "{{ spark_home }}/conf/spark-env.sh"
+    owner: spark
+    group: spark
+    mode: '0755'
+  become: yes
+
+- name: Copy spark-worker systemd service
+  template:
+    src: spark-worker.service.j2
+    dest: /etc/systemd/system/spark-worker.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+
+- name: Enable spark-worker service
+  systemd:
+    name: spark-worker
+    enabled: yes
+    state: started
+  become: yes

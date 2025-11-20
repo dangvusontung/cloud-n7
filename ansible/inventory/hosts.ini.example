@@ -1,0 +1,27 @@
+# Ansible Inventory Configuration
+# Copy this file to hosts.ini and fill in your actual IP addresses
+# IP addresses can be obtained from: terraform output
+
+[master]
+spark-master ansible_host=<MASTER_EXTERNAL_IP> ansible_user=sparkuser private_ip=<MASTER_INTERNAL_IP>
+
+[workers]
+spark-worker-1 ansible_host=<WORKER1_EXTERNAL_IP> ansible_user=sparkuser private_ip=<WORKER1_INTERNAL_IP>
+spark-worker-2 ansible_host=<WORKER2_EXTERNAL_IP> ansible_user=sparkuser private_ip=<WORKER2_INTERNAL_IP>
+
+[edge]
+spark-edge ansible_host=<EDGE_EXTERNAL_IP> ansible_user=sparkuser private_ip=<EDGE_INTERNAL_IP>
+
+[spark_cluster:children]
+master
+workers
+edge
+
+[spark_cluster:vars]
+ansible_ssh_private_key_file=~/.ssh/spark-cluster-key
+ansible_python_interpreter=/usr/bin/python3
+spark_version=2.4.3
+hadoop_version=2.7
+java_version=11
+spark_home=/opt/spark
+
