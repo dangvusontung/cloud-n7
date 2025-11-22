@@ -37,6 +37,11 @@ Before running the scripts, ensure you have the following installed and configur
 
 Follow these steps to deploy, test, and teardown the Spark cluster.
 
+**Note:** Ensure all scripts are executable before running them:
+```bash
+chmod +x scripts/*.sh
+```
+
 ### 1. Deploy Cluster
 Run the deployment script to provision resources with Terraform and configure them with Ansible. You can optionally provide the path to a Spark tarball if required by the upload script.
 
