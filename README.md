@@ -8,19 +8,20 @@ The project includes a complete workflow for deploying the cluster, running a sa
 
 Before running the scripts, ensure you have the following installed and configured:
 
-1.  **Linux Environment**: The scripts are designed for a Linux/Unix shell (or WSL).
-2.  **Terraform**: Download and install [Terraform](https://www.terraform.io/downloads).
-3.  **Ansible**: Install Ansible (`sudo apt install ansible` or via pip).
-4.  **Google Cloud SDK (gcloud)**: Install and authenticate (`gcloud auth login`, `gcloud auth application-default login`).
-5.  **jq**: Command-line JSON processor (used for parsing Terraform outputs).
+1.  **Terraform**: Download and install Terraform
+2.  **Ansible**: Install Ansible
+3.  **Google Cloud SDK (gcloud)**: Install and authenticate (`gcloud auth login`, `gcloud auth application-default login`).
+4.  **jq**: Command-line JSON processor (used for parsing Terraform outputs).
     ```bash
     sudo apt-get install jq
     ```
-6.  **SSH Key Pair**: The scripts assume a specific SSH key exists for cluster access.
+5.  **SSH Key Pair**: The scripts assume a specific SSH key named `spark-cluster-key` exists for cluster access.
     ```bash
     ssh-keygen -t rsa -b 4096 -f ~/.ssh/spark-cluster-key -N ""
     ```
-7.  **GCP Credentials**: Ensure your environment is configured to access your GCP project (e.g., `GOOGLE_APPLICATION_CREDENTIALS` environment variable or `gcp-credentials.json` depending on your Terraform setup).
+6.  **GCP Credentials**: `gcp-credentials.json` to access your GCP project
+
+7.  **Spark Distribution**: A Spark binary tarball (e.g., `spark-3.5.3-bin-hadoop3.tgz`) is required. The deployment script will upload this to a GCS bucket. You can place it in the project root or provide the path via command line.
 
 ## Project Structure
 
@@ -50,6 +51,7 @@ Submit the sample WordCount job to the cluster. This script connects to the edge
 ```bash
 ./scripts/submit_job.sh
 ```
+*Note: This script currently submits a job using the input file `filesample.txt` which is uploaded during deployment.*
 
 ### 3. Run Benchmark
 Run the automated benchmark script. This will execute the Spark job with varying numbers of executors (1, 2, 4, 8) and generate a performance report.
@@ -57,6 +59,7 @@ Run the automated benchmark script. This will execute the Spark job with varying
 ```bash
 ./scripts/benchmark.sh
 ```
+*This script executes the WordCount job with 1, 2, 4, and 8 executors to measure performance speedup.*
 
 ### 4. Clean Up
 **Important:** After you are done, run the destroy script to remove all GCP resources and avoid unnecessary charges.
@@ -64,4 +67,3 @@ Run the automated benchmark script. This will execute the Spark job with varying
 ```bash
 ./scripts/destroy.sh
 ```
-
