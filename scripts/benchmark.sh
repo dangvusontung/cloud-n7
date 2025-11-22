@@ -28,7 +28,7 @@ MASTER_URL="spark://${MASTER_IP}:7077"
 JAR_PATH="/opt/spark-apps/wordcount.jar"
 
 INPUT_FILE="/tmp/filesample.txt"
-REPORT_FILE="${SCRIPT_DIR}/benchmark_reportreport.txt"
+REPORT_FILE="${SCRIPT_DIR}/benchmark_report.txt"
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $SSH_KEY"
 
@@ -42,6 +42,10 @@ echo "----------|-----------|-----------------" >> "$REPORT_FILE"
 EXECUTOR_COUNTS=(1 2 4 8)
 BASE_TIME=0
 
+# Note: With small datasets on small instances (e2-micro), 1 executor may appear faster
+# because the overhead of coordinating multiple executors (network I/O, task scheduling,
+# shuffle operations) can exceed the benefits of parallelization. For larger datasets,
+# multiple executors should show better performance.
 for exec_num in "${EXECUTOR_COUNTS[@]}"; do
     echo -n "Running with $exec_num executors... "
     
@@ -54,32 +58,45 @@ for exec_num in "${EXECUTOR_COUNTS[@]}"; do
         --master $MASTER_URL \
         --deploy-mode client \
         --executor-memory 512m \
+        --executor-cores 1 \
         --num-executors $exec_num \
+        --conf spark.dynamicAllocation.enabled=false \
         $JAR_PATH $INPUT_FILE $OUTPUT_DIR 2>&1 \
-        | grep 'time in ms' | awk -F ':' '{print \$2}' | tr -d ' '
+        | grep -m 1 'time in ms' | awk -F ':' '{print \$2}' | tr -d ' ' | head -1
     ")
 
     if [ -z "$TIME_MS" ]; then
         echo "FAILED (Check logs on Edge)"
         TIME_MS="N/A"
+        SPEEDUP="N/A"
     else
-        echo "Done in ${TIME_MS}ms"
+        # Clean TIME_MS to ensure it's numeric (remove any newlines or non-numeric chars)
+        TIME_MS_CLEAN=$(echo "$TIME_MS" | tr -d '\n\r' | grep -oE '[0-9]+' | head -1)
         
-        if [ "$exec_num" -eq 1 ]; then
-            BASE_TIME=$TIME_MS
-            SPEEDUP="1.0x"
+        if [ -z "$TIME_MS_CLEAN" ] || [ "$TIME_MS_CLEAN" -le 0 ]; then
+            echo "FAILED (Invalid time extracted from: '$TIME_MS')"
+            TIME_MS="N/A"
+            SPEEDUP="N/A"
         else
-            if [ "$TIME_MS" -gt 0 ]; then
-                SPEEDUP=$(echo "scale=2; $BASE_TIME / $TIME_MS" | bc)x
+            TIME_MS=$TIME_MS_CLEAN
+            echo "Done in ${TIME_MS}ms"
+            
+            if [ "$exec_num" -eq 1 ]; then
+                BASE_TIME=$TIME_MS
+                SPEEDUP="1.0x"
             else
-                SPEEDUP="Error"
+                if [ -n "$BASE_TIME" ] && [ "$BASE_TIME" -gt 0 ]; then
+                    SPEEDUP=$(echo "scale=2; $BASE_TIME / $TIME_MS" | bc)x
+                else
+                    SPEEDUP="Error"
+                fi
             fi
         fi
-
-        echo "$exec_num         | $TIME_MS      | $SPEEDUP" >> "$REPORT_FILE"
     fi
     
-    sleep 5
+    echo "$exec_num         | $TIME_MS      | $SPEEDUP" >> "$REPORT_FILE"
+    
+    sleep 10
 done
 
 echo "---------------------------------------------"

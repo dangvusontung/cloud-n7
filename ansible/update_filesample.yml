@@ -1,0 +1,47 @@
+---
+- name: Force Update filesample.txt on Edge and Workers
+  hosts: workers:edge
+  gather_facts: yes
+  become: yes
+  
+  pre_tasks:
+    - name: Load terraform outputs
+      set_fact:
+        terraform_outputs: "{{ lookup('file', '../terraform/terraform_outputs.json') | from_json }}"
+      when: spark_artifacts_bucket_name is not defined
+      ignore_errors: yes
+
+    - name: Set spark_artifacts_bucket_name from terraform outputs
+      set_fact:
+        spark_artifacts_bucket_name: "{{ terraform_outputs.artifacts_bucket_name.value | default('') }}"
+      when: 
+        - spark_artifacts_bucket_name is not defined
+        - terraform_outputs is defined
+        - terraform_outputs.artifacts_bucket_name.value is defined
+
+  tasks:
+    - name: Acquire GCP metadata token
+      uri:
+        url: "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+        method: GET
+        headers: 
+          Metadata-Flavor: Google
+        return_content: yes
+        timeout: 5
+      register: spark_gcp_token
+      when: spark_artifacts_bucket_name | default('') | length > 0
+      ignore_errors: yes
+
+    - name: Download Test File from GCS (Force)
+      get_url:
+        url: "https://storage.googleapis.com/download/storage/v1/b/{{ spark_artifacts_bucket_name }}/o/{{ 'filesample.txt' | urlencode }}?alt=media"
+        dest: /tmp/filesample.txt
+        mode: '0644'
+        timeout: 300
+        force: yes
+        headers:
+          Authorization: "Bearer {{ spark_gcp_token.json.access_token }}"
+      when:
+        - spark_artifacts_bucket_name | default('') | length > 0
+        - spark_gcp_token is succeeded
+
